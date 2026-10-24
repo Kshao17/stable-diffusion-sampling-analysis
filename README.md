@@ -1,91 +1,98 @@
-# Stable Diffusion Sampling & Scheduler Analysis
+# Stable Diffusion XL: Denoising Trajectory, Guidance Scale and Sampler Cost
 
-This project explores how Stable Diffusion XL (SDXL) generates images during the reverse diffusion process and how different inference settings affect image quality and runtime.
+Individual project exploring how Stable Diffusion XL (SDXL) builds an image during reverse diffusion
+and how inference settings affect image quality and runtime.
 
-The experiments focus on reverse denoising visualization, classifier-free guidance, sampling steps, and scheduler comparisons.
+**Questions**
 
-## Project Overview
+1. In what order does the image take shape during denoising?
+2. How does the classifier-free guidance (CFG) scale trade prompt alignment against naturalness?
+3. How many sampling steps are worth their cost, and does the scheduler matter?
 
-The project investigates several practical questions in diffusion-based image generation:
+## Setup
 
-- How does an image emerge from Gaussian noise during reverse diffusion?
-- How does classifier-free guidance affect prompt alignment and image naturalness?
-- How many inference steps are needed before additional computation produces diminishing returns?
-- How do Euler and DDIM schedulers compare in runtime and visual quality?
+| Setting | Value |
+| --- | --- |
+| Model | Stable Diffusion XL via Hugging Face Diffusers |
+| Resolution | 1024 × 1024 |
+| Prompts | 5 sampled from 10 DrawBench prompts |
+| Trajectory | 50 steps; latents decoded with the SDXL VAE at step indices 10, 20, 30, 40, 49 |
+| Guidance | CFG 3.0 vs. 15.0, 50 steps |
+| Schedulers | Euler discrete and DDIM; complete runs at 10, 25 and 50 steps, plus 20 and 80 |
+| Seed | Fixed across all runs |
 
-## Reverse Diffusion Visualization
+## Results
 
-Intermediate latent representations were extracted during the denoising process and decoded using the SDXL VAE.
+### Denoising trajectory
 
-The experiments showed that:
+![Car trajectory](results/traj_car.png)
 
-- Early steps mainly contain noise
-- Global image structure becomes recognizable around step 20
-- Later steps primarily refine textures, lighting, and fine details
+![Cats trajectory](results/traj_cats.png)
 
-This suggests that SDXL first establishes the overall composition before refining local details.
+In these trajectories, the main objects became recognizable around step index 20, while secondary
+elements and fine texture appeared in later steps. Both examples also show a counting error that
+remained in the final image: "a white sheep" produced a flock, and "three cats and one dog" produced
+two cats and one dog.
 
-## Guidance Scale Analysis
+### Guidance scale
 
-Two classifier-free guidance settings were compared:
+![Statue, CFG 3.0 vs 15.0](results/cfg_statue.png)
 
-| Guidance Scale | Prompt Alignment | Naturalness | Visual Artifacts |
-| --- | --- | --- | --- |
-| CFG 3.0 | Moderate | High | Minimal |
-| CFG 15.0 | Stronger | Lower | More high-contrast artifacts |
+![Tile sphere, CFG 3.0 vs 15.0](results/cfg_sphere.png)
 
-Higher guidance improved prompt alignment, but excessive guidance also produced oversaturation and less natural-looking images.
+| Aspect | CFG 3.0 | CFG 15.0 |
+| --- | --- | --- |
+| Prompt content | Animal resembles a lion as much as a cat | Clearly a cat, man mid-stride over it |
+| Color and contrast | Muted tones, soft shadows | More saturated, harder shadows |
+| Sphere setting and texture | Indoor scene, irregular tiles | Studio background, regular tile grid |
 
-## Scheduler & Sampling Analysis
+### Runtime
 
-The project compares Euler Discrete and DDIM schedulers across different numbers of inference steps.
+Average wall-clock time per image over the five prompts:
 
-| Scheduler | Steps | Approx. Runtime | Observation |
-| --- | ---: | ---: | --- |
-| Euler | 10 | ~2.4 s | Fast convergence and stable structure |
-| Euler | 25 | ~5.6 s | Better high-frequency detail |
-| Euler | 50 | ~8.8 s | Fine details with diminishing improvement |
-| DDIM | 10 | ~2.4 s | Good overall structure |
-| DDIM | 25 | ~5.7 s | High fidelity and smooth output |
-| DDIM | 50 | ~8.9 s | High quality but more computationally expensive |
+| Scheduler | 10 steps | 25 steps | 50 steps |
+| --- | ---: | ---: | ---: |
+| Euler | 2.4 s | 5.6 s | 8.8 s |
+| DDIM | 2.4 s | 5.7 s | 8.9 s |
 
-The experiments showed diminishing visual improvements as the number of sampling steps increased.
+- Five times as many steps took about 3.7 times as long, consistent with a fixed per-image cost plus
+  a per-step cost.
+- Euler and DDIM took nearly the same time in this setup.
+- 25 steps added most of the visible detail; 50 steps was only slightly sharper, and 80 steps was
+  hard to distinguish from 50. A complete 20-step Euler run took about half the time of a 50-step run.
 
-## Experimental Setup
+## Limitations
 
-- Model: Stable Diffusion XL
-- Library: Hugging Face Diffusers
-- Dataset / Prompts: DrawBench
-- Schedulers: Euler Discrete and DDIM
-- Guidance scales tested: 3.0 and 15.0
-- Fixed random seeds were used for controlled comparisons
-
-## Technologies
-
-- Python
-- PyTorch
-- Hugging Face Diffusers
-- Stable Diffusion XL
-- NumPy
-- Matplotlib
-
-## Key Takeaways
-
-- SDXL generates global structure before refining local details.
-- Higher classifier-free guidance can improve prompt alignment but may reduce naturalness.
-- Increasing sampling steps improves quality only up to a point.
-- Euler and DDIM show similar runtime scaling under the tested settings.
-- Lower-step configurations can provide a better speed-quality trade-off for many prompts.
+- Image quality was judged visually on five prompts with one seed.
+- Hardware, precision and warm-up were not recorded with the timings, so runtimes are relative
+  comparisons within one setup.
 
 ## Repository Structure
 
 ```text
 stable-diffusion-sampling-analysis/
 ├── README.md
-├── notebooks/
-│   └── stable_diffusion_analysis.ipynb
-├── results/
-│   ├── reverse_diffusion/
-│   ├── guidance_comparison/
-│   └── scheduler_comparison/
-└── .gitignore
+├── requirements.txt
+├── Main.py                 # trajectory, guidance and scheduler experiments
+└── results/
+    ├── traj_car.png        # decoded latents, "A red car and a white sheep."
+    ├── traj_cats.png       # decoded latents, "Three cats and one dog sitting on the grass."
+    ├── cfg_statue.png      # CFG 3.0 vs. 15.0
+    └── cfg_sphere.png      # CFG 3.0 vs. 15.0
+```
+
+## Running
+
+```bash
+pip install -r requirements.txt
+python Main.py
+```
+
+A CUDA GPU is required.
+
+## References
+
+- Podell, D., et al. (2024). [SDXL: Improving Latent Diffusion Models for High-Resolution Image Synthesis](https://arxiv.org/abs/2307.01952). ICLR 2024.
+- Ho, J., and Salimans, T. (2021). [Classifier-Free Diffusion Guidance](https://arxiv.org/abs/2207.12598).
+- Song, J., Meng, C., and Ermon, S. (2021). [Denoising Diffusion Implicit Models](https://arxiv.org/abs/2010.02502). ICLR 2021.
+- Saharia, C., et al. (2022). [Photorealistic Text-to-Image Diffusion Models with Deep Language Understanding](https://arxiv.org/abs/2205.11487) (DrawBench). NeurIPS 2022.
